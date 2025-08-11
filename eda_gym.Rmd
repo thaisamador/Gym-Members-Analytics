@@ -1,0 +1,273 @@
+# Explority Data Analysis: Gym Member Segmentation Project
+# This notebook presents an exploratory data analysis of a fitness dataset that includes demographic, biometric, and workout-related information from gym members.
+# Data source: Kaggle – Gym Members Exercise Dataset: https://www.kaggle.com/datasets/valakhorasani/gym-members-exercise-dataset
+# Project objective:
+# The main goals of this project are:
+# -Clean and preprocess members biometric and workout data
+# -Analyze gym user behavior across demographics, workout types, and health indicators
+# -Segment gym members using K-Means clustering based on fitness and engagement metrics
+# -Build a decision tree to assign personalized gym plans based on member profiles
+
+```{r}
+# Packages
+install.packages(c("dplyr", "tidyr", "ggplot2", "factoextra", "cluster", "rpart", "rpart.plot", "readr", "patchwork", "corrplot", "ggplotify"))
+```
+
+```{r}
+# Libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(factoextra)
+library(cluster)
+library(rpart)
+library(rpart.plot)
+library(readr)
+library(reshape2)
+library(patchwork)
+library(corrplot)
+library(ggplotify)
+```
+
+```{r}
+# Load dataset
+db <- read_csv("gym_members_exercise_tracking.csv")
+db
+```
+
+```{r}
+# Dataset Overview
+glimpse(db)
+summary(db)
+```
+# Observations:
+# The column Gender and Workout_Type are categorical but are currently stored as "character" type; they should be converted to "factor" for proper analysis.
+# Age ranges from 18 to 59 years old, indicating a relatively young to middle-aged gym population.
+# Some members show very low weight and height values.
+# Max_BPM and Avg_BPM range from 160–199 and 120–169, respectively, which are plausible for active workout sessions.
+# Calories_Burned ranges from 303 to 1783, with a median around 893, indicating a broad range of workout intensity levels.
+# Fat_Percentage ranges from 10% to 35%, and BMI from 12.32 to 49.84, showing the dataset includes both underweight and obese individuals.
+# Workout_Frequency (days/week) ranges from 2 to 5.
+
+```{r}
+# Data cleaning and preprocessing
+db$Gender <- as.factor(db$Gender)
+db$Workout_Type <- as.factor(db$Workout_Type)
+
+str(db)
+```
+
+```{r}
+# Exploratory Data Analysis
+
+# Distribution of numerical variables
+num_cols <- db %>% select_if(is.numeric) %>% names()
+
+par(mfrow = c(3, 5))
+
+for (col in num_cols) {
+  hist(db[[col]],
+       main = paste(col),
+       xlab = col,
+       col = "mediumpurple3",
+       border = "black")}
+
+par(mfrow = c(1, 1))
+```
+# Interpretation
+# Age: Most users are between 25 and 45 years old.
+# Weight and Height: There is a concentration between 55–80 kg and 1.5–1.8 m.
+# BMI: Most users have a BMI between 20 and 30, although there are some cases of obesity.
+# Max_BPM, Avg_BPM, and Resting_BPM: These variables show a normal distribution with peaks in physiologically expected ranges. Most users have:
+#   -Maximum heart rates between 170–190 bpm
+#   -Average heart rates between 140–160 bpm
+# Session_Duration: Most workout sessions last between 1 and 1.5 hours.
+# Calories_Burned: Follows an almost normal distribution centered around 600–1200 calories per session.
+# Fat_Percentage: Concentrated between 25% and 30%.
+# Water_Intake: Most users consume between 2 and 3 liters.
+# Workout_Frequency: Training 3–5 days per week is most common.
+# Experience_Level: A majority in levels 2 and 3.
+
+```{r}
+# Boxplots for outliers detection
+db_long <- melt(db[, num_cols])
+
+create_box <- function(col) {
+  ggplot(db, aes(y = .data[[col]])) +
+    geom_boxplot(fill = "mediumpurple", outlier.color = "black") +
+    theme_minimal() +
+    labs(title = paste(col), y = col, x = NULL) +
+    theme(
+      plot.title   = element_text(size = 8),
+      axis.title.y = element_text(size = 6),  
+      axis.title.x = element_text(size = 6), 
+      axis.text.x  = element_blank(),
+      axis.ticks.x = element_blank()
+    )
+}
+
+boxplots <- lapply(num_cols, create_box)
+wrap_plots(boxplots, ncol = 4)
+```
+# Interpretation
+# Age: Most users are between 30 and 50 years old, with no significant outliers observed.
+# Weight: Is concentrated between 60 and 90 kg, some outliers above 120 kg may indicate possible cases of obesity.
+# Height: Is concentrated between 1.65 and 1.85 meters, with no outliers.
+# Max_BPM: Maximum heart rate is typically between 170 and 190 bpm, with no outliers.
+# Avg_BPM: Average heart rate ranges between 130 and 160 bpm, with no outliers.
+# Resting_BPM: Values range between 55 and 70 bpm, with no outliers.
+# Session_Duration: Sessions last between 1 and 1.5 hours, with no outliers.
+# Calories_Burned: Distribution is centered around 600–1200 calories, some outliers above 1500 calories are observed.
+# Fat_Percentage: Concentrated between 22% and 30%, with some low values <15% and high values >35% that may correspond to physiological extremes or data errors.
+# Water_Intake: Most users consume between 2 and 3.2 liters per day, with no outliers.
+# Workout_Frequency: Training frequency is between 3 and 5 days per week, with no outliers.
+# Experience_Level: Slightly more users are at intermediate and advanced levels.
+# BMI: The average ranges between 22 and 30, with some outliers above 35–40.
+
+```{r}
+# Correlation Matrix
+cor_matrix <- cor(db[, num_cols], use = "complete.obs")
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         addCoef.col = "black",
+         col = colorRampPalette(c("white", "mediumpurple4"))(100),
+         tl.col = "black",
+         tl.srt = 45,
+         tl.cex = 0.6,
+         number.cex = 0.5,
+         title = "Correlation Matrix",
+         mar = c(0,0,1,0))
+```
+# Interpretation 
+# Session_Duration and Calories_Burned show a very strong positive correlation of 0.91, indicating that longer sessions result in significantly higher calorie expenditure.
+# Workout_Frequency and Experience_Level are strongly correlated at 0.84, suggesting that more experienced users tend to train more frequently.
+# Workout_Frequency and Calories_Burned have a strong positive correlation of 0.76, meaning that training more days per week leads to higher total calories burned.
+# Session_Duration and Workout_Frequency have a moderate positive correlation of 0.58, implying that users who train more often also tend to have longer sessions.
+# Calories_Burned and Fat_Percentage show a strong negative correlation of –0.60, indicating that higher energy expenditure is associated with lower body fat percentage.
+# Water_Intake and Fat_Percentage are negatively correlated at –0.59, suggesting that users who consume more water tend to have lower fat percentages.
+# Workout_Frequency and Fat_Percentage also show a strong negative correlation of –0.65, reinforcing the idea that regular exercise is linked to reduced body fat.
+
+```{r}
+# Average calories burned by category
+db <- db %>%
+  mutate(
+    Age_Group = cut(Age,
+                    breaks = c(0, 25, 35, 45, 60, Inf),
+                    labels = c("<=25", "26–35", "36–45", "46–60", "60+"),
+                    right = FALSE),
+    Duration_Group = cut(`Session_Duration (hours)`,
+                         breaks = c(0, 1, 1.5, 2.5),
+                         labels = c("<1h", "1–1.5h", "1.5–2.5h"),
+                         right = FALSE))
+
+cat_cols <- c("Gender", "Workout_Type", "Workout_Frequency (days/week)","Experience_Level", "Age_Group", "Duration_Group")
+
+target_metric <- "Calories_Burned"
+
+plots <- lapply(cat_cols, function(col) {
+  db %>%
+    group_by(.data[[col]]) %>%
+    summarise(Average = mean(.data[[target_metric]], na.rm = TRUE)) %>%
+    ggplot(aes(x = .data[[col]], y = Average)) +
+    geom_bar(stat = "identity", fill = "mediumpurple", color = "black") +
+    labs(
+      title = paste("Avg", target_metric, "by", col),
+      x = col, 
+      y = paste("Avg", target_metric)) +
+    theme_minimal() +
+    theme(
+      plot.title  = element_text(size = 7, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 7), 
+      axis.text.y = element_text(size = 7),                         
+      axis.title.x = element_text(size = 8),                       
+      axis.title.y = element_text(size = 8))})
+
+wrap_plots(plots, ncol = 2)
+
+
+```
+# Interpretation
+# Gender: Men burn more calories on average than women.
+# Workout_Type: HIIT shows the highest average burn calories.
+# Workout_Frequency: The more frequently users work out, the more calories they burn on average.
+# Experience_Level: Beginners burn fewer calories than intermediate and advanced users.
+# Age: Users aged ≤25 and 26–35 burn the most calories on average.
+# Session Duration: Sessions of 1.5–2.5h burn more calories
+
+```{r}
+# Clustering
+# The elbow method
+vars_cluster <- c("Age","Weight (kg)","Height (m)","BMI","Calories_Burned","Session_Duration (hours)","Workout_Frequency (days/week)","Fat_Percentage","Avg_BPM")
+
+db_num <- db %>%
+  select(all_of(vars_cluster)) %>%
+  scale()
+
+wss <- numeric(10)
+set.seed(123)
+
+for (k in 1:10) {
+  kmeans_model <- kmeans(db_num, centers = k, nstart = 25)
+  wss[k] <- kmeans_model$tot.withinss}
+
+elbow_db <- data.frame(k = 1:10, wss = wss)
+
+ggplot(elbow_db, aes(x = k, y = wss)) +
+  geom_line(color = "mediumpurple", size = 1) +
+  geom_point(color = "purple", size = 2) +
+  theme_minimal() +
+  labs(title = "Elbow Method",
+       x = "Number of Clusters",
+       y = "Total Within-Cluster")
+```
+# The elbow method is used to determine the optimal number of clusters in a K-Means segmentation model.
+
+# Interpretation
+# The curve begins to flatten at k = 3, forming an "elbow." This indicates that 3 clusters is an appropriate number to segment the users.
+
+```{r}
+# KMeans
+set.seed(123)
+kmeans_model <- kmeans(db_num, centers = 3, nstart = 25)
+
+db$Cluster <- as.factor(kmeans_model$cluster)
+
+pca <- prcomp(db_num)
+pca_df <- as.data.frame(pca$x[, 1:2])
+pca_df$Cluster <- db$Cluster
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = c("blue", "pink", "purple")) +
+  theme_minimal() +
+  labs(title = "K-Means Clustering", x = "Principal Component 1", y = "Principal Component 2")
+db %>%
+  group_by(Cluster) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE),.groups = "drop")
+```
+# Interpretation 
+# Blue Cluster (1) is characterized by users with higher weight (107 kg) and height (1.79 m), who burn more calories over 1300 cal, train 5–6 days per week, and have the highest experience level 3, they represent an advanced, high-performance profile.
+# Pick Cluster (2) includes average users with moderate weight (73.5 kg), height (1.73 m), and calorie burn ~1000 cal, they work out around 4 days per week and have experience level 2. This is the gym’s stable core group with balanced activity.
+# Purple Cluster (3) groups users with lower weight (62.5 kg) and height (1.70 m), who burn fewer calories (~800 cal), train 3 days per week, and are at experience level 1. These are more inactive or beginner members.
+
+```{r}
+# Tree decision
+library(rpart)
+library(rpart.plot)
+
+tree_model <- rpart(Cluster ~ Age + BMI + Calories_Burned + `Workout_Frequency (days/week)`, data = db, method = "class")
+
+rpart.plot(tree_model, type = 4, extra = 101,
+           box.col = c("#6ea7fd", "pink", "#bc5cf8")[as.numeric(tree_model$frame$yval)])
+```
+# Interpretation 
+# Blue Cluster (1): Users with low activity levels, less than 3 days/week, and a high BMI, overweight or obese.
+# Pink Cluster (2): Users who exercise a lot ≥ 4 days/week, and burn a lot of calories, with a healthier BMI.
+# Purple Cluster (3): Users with moderate or regular activity and body composition.
+
+```{r}
+# Save database
+# write.csv(db, "gym_members_cleaned.csv", row.names = FALSE)
+```
